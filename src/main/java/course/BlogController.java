@@ -17,16 +17,15 @@
 
 package course;
 
-
-import com.mongodb.DB;
-import com.mongodb.DBObject;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
+import com.mongodb.client.MongoDatabase;
 import freemarker.template.Configuration;
 import freemarker.template.SimpleHash;
 import freemarker.template.Template;
 import freemarker.template.TemplateException;
 import org.apache.commons.lang3.StringEscapeUtils;
+import org.bson.Document;
 import spark.Request;
 import spark.Response;
 import spark.Route;
@@ -38,6 +37,7 @@ import java.io.Writer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static spark.Spark.get;
 import static spark.Spark.post;
@@ -66,7 +66,7 @@ public class BlogController {
 
     public BlogController(String mongoURIString) throws IOException {
         final MongoClient mongoClient = new MongoClient(new MongoClientURI(mongoURIString));
-        final DB blogDatabase = mongoClient.getDB("blog");
+        final MongoDatabase blogDatabase = mongoClient.getDatabase("blog");
 
         blogPostDAO = new BlogPostDAO(blogDatabase);
         userDAO = new UserDAO(blogDatabase);
@@ -114,7 +114,7 @@ public class BlogController {
             public void doHandle(Request request, Response response, Writer writer) throws IOException, TemplateException {
                 String username = sessionDAO.findUserNameBySessionId(getSessionCookie(request));
 
-                List<DBObject> posts = blogPostDAO.findByDateDescending(10);
+                List<Document> posts = blogPostDAO.findByDateDescending(10);
                 SimpleHash root = new SimpleHash();
 
                 root.put("myposts", posts);
@@ -134,7 +134,7 @@ public class BlogController {
 
                 System.out.println("/post: get " + permalink);
 
-                DBObject post = blogPostDAO.findByPermalink(permalink);
+                Document post = blogPostDAO.findByPermalink(permalink);
                 if (post == null) {
                     response.redirect("/post_not_found");
                 }
@@ -164,7 +164,7 @@ public class BlogController {
                 String password = request.queryParams("password");
                 String verify = request.queryParams("verify");
 
-                HashMap<String, String> root = new HashMap<String, String>();
+                Map<String, String> root = new HashMap<>();
                 root.put("username", StringEscapeUtils.escapeHtml4(username));
                 root.put("email", StringEscapeUtils.escapeHtml4(email));
 
@@ -252,7 +252,7 @@ public class BlogController {
                 }
                 else if (title.equals("") || post.equals("")) {
                     // redisplay page with errors
-                    HashMap<String, String> root = new HashMap<String, String>();
+                    Map<String, String> root = new HashMap<>();
                     root.put("errors", "post must contain a title and blog entry.");
                     root.put("subject", title);
                     root.put("username", username);
@@ -262,7 +262,7 @@ public class BlogController {
                 }
                 else {
                     // extract tags
-                    ArrayList<String> tagsArray = extractTags(tags);
+                    List<String> tagsArray = extractTags(tags);
 
                     // substitute some <p> for the paragraph breaks
                     post = post.replaceAll("\\r?\\n", "<p>");
@@ -307,7 +307,7 @@ public class BlogController {
                 String body = StringEscapeUtils.escapeHtml4(request.queryParams("commentBody"));
                 String permalink = request.queryParams("permalink");
 
-                DBObject post = blogPostDAO.findByPermalink(permalink);
+                Document post = blogPostDAO.findByPermalink(permalink);
                 if (post == null) {
                     response.redirect("/post_not_found");
                 }
@@ -357,7 +357,7 @@ public class BlogController {
 
                 System.out.println("Login: User submitted: " + username + "  " + password);
 
-                DBObject user = userDAO.validateLogin(username, password);
+                Document user = userDAO.validateLogin(username, password);
 
                 if (user != null) {
 
@@ -396,7 +396,7 @@ public class BlogController {
                 SimpleHash root = new SimpleHash();
 
                 String tag = StringEscapeUtils.escapeHtml4(request.params(":thetag"));
-                List<DBObject> posts = blogPostDAO.findByTagDateDescending(tag);
+                List<Document> posts = blogPostDAO.findByTagDateDescending(tag);
 
                 root.put("myposts", posts);
                 if (username != null) {
@@ -486,7 +486,7 @@ public class BlogController {
     // tags the tags string and put it into an array
     private ArrayList<String> extractTags(String tags) {
 
-        // probably more efficent ways to do this.
+        // probably more efficient ways to do this.
         //
         // whitespace = re.compile('\s')
 
@@ -494,7 +494,7 @@ public class BlogController {
         String tagArray[] = tags.split(",");
 
         // let's clean it up, removing the empty string and removing dups
-        ArrayList<String> cleaned = new ArrayList<String>();
+        ArrayList<String> cleaned = new ArrayList<>();
         for (String tag : tagArray) {
             if (!tag.equals("") && !cleaned.contains(tag)) {
                 cleaned.add(tag);
@@ -506,7 +506,7 @@ public class BlogController {
 
     // validates that the registration form has been filled out right and username conforms
     public boolean validateSignup(String username, String password, String verify, String email,
-                                  HashMap<String, String> errors) {
+                                  Map<String, String> errors) {
         String USER_RE = "^[a-zA-Z0-9_-]{3,20}$";
         String PASS_RE = "^.{3,20}$";
         String EMAIL_RE = "^[\\S]+@[\\S]+\\.[\\S]+$";

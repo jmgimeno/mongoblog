@@ -17,24 +17,23 @@
 
 package course;
 
-import com.mongodb.BasicDBObject;
-import com.mongodb.DB;
-import com.mongodb.DBCollection;
-import com.mongodb.DBObject;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import org.bson.Document;
 import sun.misc.BASE64Encoder;
 
 import java.security.SecureRandom;
 
 public class SessionDAO {
-    private final DBCollection sessionsCollection;
+    private final MongoCollection<Document> sessionsCollection;
 
-    public SessionDAO(final DB blogDatabase) {
+    public SessionDAO(final MongoDatabase blogDatabase) {
         sessionsCollection = blogDatabase.getCollection("sessions");
     }
 
 
     public String findUserNameBySessionId(String sessionId) {
-        DBObject session = getSession(sessionId);
+        Document session = getSession(sessionId);
 
         if (session == null) {
             return null;
@@ -58,22 +57,22 @@ public class SessionDAO {
         String sessionID = encoder.encode(randomBytes);
 
         // build the BSON object
-        BasicDBObject session = new BasicDBObject("username", username);
+        Document session = new Document("username", username);
 
         session.append("_id", sessionID);
 
-        sessionsCollection.insert(session);
+        sessionsCollection.insertOne(session);
 
         return session.getString("_id");
     }
 
     // ends the session by deleting it from the sesisons table
     public void endSession(String sessionID) {
-        sessionsCollection.remove(new BasicDBObject("_id", sessionID));
+        sessionsCollection.findOneAndDelete(new Document("_id", sessionID));
     }
 
     // retrieves the session from the sessions table
-    public DBObject getSession(String sessionID) {
-        return sessionsCollection.findOne(new BasicDBObject("_id", sessionID));
+    public Document getSession(String sessionID) {
+        return sessionsCollection.find(new Document("_id", sessionID)).first();
     }
 }

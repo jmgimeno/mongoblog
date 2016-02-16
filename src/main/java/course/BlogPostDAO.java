@@ -17,50 +17,40 @@
 
 package course;
 
-import com.mongodb.BasicDBObject;
-import com.mongodb.DB;
-import com.mongodb.DBCollection;
-import com.mongodb.DBCursor;
-import com.mongodb.DBObject;
-import com.mongodb.WriteResult;
+import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.result.UpdateResult;
+import org.bson.Document;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class BlogPostDAO {
-    DBCollection postsCollection;
+    MongoCollection<Document> postsCollection;
 
-    public BlogPostDAO(final DB blogDatabase) {
+    public BlogPostDAO(final MongoDatabase blogDatabase) {
         postsCollection = blogDatabase.getCollection("posts");
     }
 
-    public DBObject findByPermalink(String permalink) {
-        DBObject post = postsCollection.findOne(new BasicDBObject("permalink", permalink));
-
-
+    public Document findByPermalink(String permalink) {
+        Document post = postsCollection.find(new Document("permalink", permalink)).first();
         return post;
     }
 
-    public List<DBObject> findByDateDescending(int limit) {
-        List<DBObject> posts;
-        DBCursor cursor = postsCollection.find().sort(new BasicDBObject().append("date", -1)).limit(limit);
-        try {
-            posts = cursor.toArray();
-        } finally {
-            cursor.close();
-        }
+    public List<Document> findByDateDescending(int limit) {
+        List<Document> posts = new ArrayList<>();
+        FindIterable<Document> cursor = postsCollection.find().sort(new Document("date", -1)).limit(limit);
+        cursor.into(posts);
         return posts;
     }
 
-    public List<DBObject> findByTagDateDescending(final String tag) {
-        List<DBObject> posts;
-        BasicDBObject query = new BasicDBObject("tags", tag);
+    public List<Document> findByTagDateDescending(final String tag) {
+        List<Document> posts = new ArrayList<>();
+        Document query = new Document("tags", tag);
         System.out.println("/tag query: " + query.toString());
-        DBCursor cursor = postsCollection.find(query).sort(new BasicDBObject().append("date", -1)).limit(10);
-        try {
-            posts = cursor.toArray();
-        } finally {
-            cursor.close();
-        }
+        FindIterable<Document> cursor = postsCollection.find(query).sort(new Document("date", -1)).limit(10);
+        cursor.into(posts);
         return posts;
     }
 
@@ -72,7 +62,7 @@ public class BlogPostDAO {
         permalink = permalink.replaceAll("\\W", ""); // get rid of non alphanumeric
         permalink = permalink.toLowerCase();
 
-        BasicDBObject post = new BasicDBObject("title", title);
+        Document post = new Document("title", title);
         post.append("author", username);
         post.append("body", body);
         post.append("permalink", permalink);
@@ -81,7 +71,7 @@ public class BlogPostDAO {
         post.append("date", new java.util.Date());
 
         try {
-            postsCollection.insert(post);
+            postsCollection.insertOne(post);
             System.out.println("Inserting blog post with permalink " + permalink);
         } catch (Exception e) {
             System.out.println("Error inserting post");
@@ -92,13 +82,13 @@ public class BlogPostDAO {
     }
 
     public void addPostComment(final String name, final String email, final String body, final String permalink) {
-        BasicDBObject comment = new BasicDBObject("author", name).append("body", body);
+        Document comment = new Document("author", name).append("body", body);
         if (email != null && !email.equals("")) {
             comment.append("email", email);
         }
 
-        WriteResult result = postsCollection.update(new BasicDBObject("permalink", permalink),
-                new BasicDBObject("$push", new BasicDBObject("comments", comment)), false, false);
+        UpdateResult result = postsCollection.updateOne(new Document("permalink", permalink),
+                                                        new Document("$push", new Document("comments", comment)));
     }
 
 }
