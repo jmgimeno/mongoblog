@@ -22,26 +22,20 @@ import com.mongodb.MongoClientURI;
 import com.mongodb.client.MongoDatabase;
 import freemarker.template.Configuration;
 import freemarker.template.SimpleHash;
-import freemarker.template.Template;
-import freemarker.template.TemplateException;
 import org.apache.commons.lang3.StringEscapeUtils;
 import org.bson.Document;
+import spark.ModelAndView;
 import spark.Request;
-import spark.Response;
-import spark.Route;
+import spark.template.freemarker.FreeMarkerEngine;
 
 import javax.servlet.http.Cookie;
 import java.io.IOException;
-import java.io.StringWriter;
-import java.io.Writer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static spark.Spark.get;
-import static spark.Spark.post;
-import static spark.Spark.setPort;
+import static spark.Spark.*;
 
 /**
  * This class encapsulates the controllers for the blog web application.  It delegates all interaction with MongoDB
@@ -50,10 +44,11 @@ import static spark.Spark.setPort;
  * It is also the entry point into the web application.
  */
 public class BlogController {
-    private final Configuration cfg;
+//    private final Configuration cfg;
     private final BlogPostDAO blogPostDAO;
     private final UserDAO userDAO;
     private final SessionDAO sessionDAO;
+//    private final FreeMarkerEngine freeMarkerEngine;
 
     public static void main(String[] args) throws IOException {
         if (args.length == 0) {
@@ -72,389 +67,308 @@ public class BlogController {
         userDAO = new UserDAO(blogDatabase);
         sessionDAO = new SessionDAO(blogDatabase);
 
-        cfg = createFreemarkerConfiguration();
-        setPort(8082);
+//        cfg = createFreemarkerConfiguration();
+//        freeMarkerEngine = new FreeMarkerEngine(cfg);
+        
+        port(8082);
         initializeRoutes();
     }
 
-    abstract class FreemarkerBasedRoute extends Route {
-        final Template template;
-
-        /**
-         * Constructor
-         *
-         * @param path The route path which is used for matching. (e.g. /hello, users/:name)
-         */
-        protected FreemarkerBasedRoute(final String path, final String templateName) throws IOException {
-            super(path);
-            template = cfg.getTemplate(templateName);
-        }
-
-        @Override
-        public Object handle(Request request, Response response) {
-            StringWriter writer = new StringWriter();
-            try {
-                doHandle(request, response, writer);
-            } catch (Exception e) {
-                e.printStackTrace();
-                response.redirect("/internal_error");
-            }
-            return writer;
-        }
-
-        protected abstract void doHandle(final Request request, final Response response, final Writer writer)
-                throws IOException, TemplateException;
-
-    }
-
     private void initializeRoutes() throws IOException {
+
         // this is the blog home page
-        get(new FreemarkerBasedRoute("/", "blog_template.ftl") {
-            @Override
-            public void doHandle(Request request, Response response, Writer writer) throws IOException, TemplateException {
-                String username = sessionDAO.findUserNameBySessionId(getSessionCookie(request));
-
-                List<Document> posts = blogPostDAO.findByDateDescending(10);
-                SimpleHash root = new SimpleHash();
-
-                root.put("myposts", posts);
-                if (username != null) {
-                    root.put("username", username);
-                }
-
-                template.process(root, writer);
+        get("/", (request, response) -> {
+            String username = sessionDAO.findUserNameBySessionId(getSessionCookie(request));
+            List<Document> posts = blogPostDAO.findByDateDescending(10);
+            SimpleHash root = new SimpleHash();
+            root.put("myposts", posts);
+            if (username != null) {
+                root.put("username", username);
             }
-        });
+            return new ModelAndView(root, "blog_template.ftl");
+        }, new FreeMarkerEngine());
 
         // used to display actual blog post detail page
-        get(new FreemarkerBasedRoute("/post/:permalink", "entry_template.ftl") {
-            @Override
-            protected void doHandle(Request request, Response response, Writer writer) throws IOException, TemplateException {
-                String permalink = request.params(":permalink");
+        get("/post/:permalink", (request, response) -> {
+            String permalink = request.params(":permalink");
+            System.out.println("/post: get " + permalink);
+            Document post = blogPostDAO.findByPermalink(permalink);
 
-                System.out.println("/post: get " + permalink);
+            if (post == null) {
+                response.redirect("/post_not_found");
+                return null;
+            } else {
 
-                Document post = blogPostDAO.findByPermalink(permalink);
-                if (post == null) {
-                    response.redirect("/post_not_found");
-                }
-                else {
-                    // empty comment to hold new comment in form at bottom of blog entry detail page
-                    SimpleHash newComment = new SimpleHash();
-                    newComment.put("name", "");
-                    newComment.put("email", "");
-                    newComment.put("body", "");
+                // empty comment to hold new comment in form at bottom of blog entry detail page
+                SimpleHash newComment = new SimpleHash();
+                newComment.put("name", "");
+                newComment.put("email", "");
+                newComment.put("body", "");
 
-                    SimpleHash root = new SimpleHash();
+                SimpleHash root = new SimpleHash();
 
-                    root.put("post", post);
-                    root.put("comment", newComment);
+                root.put("post", post);
+                root.put("comment", newComment);
 
-                    template.process(root, writer);
-                }
+                return new ModelAndView(root, "entry_template.ftl");
             }
-        });
+        }, new FreeMarkerEngine());
 
         // handle the signup post
-        post(new FreemarkerBasedRoute("/signup", "signup.ftl") {
-            @Override
-            protected void doHandle(Request request, Response response, Writer writer) throws IOException, TemplateException {
-                String email = request.queryParams("email");
-                String username = request.queryParams("username");
-                String password = request.queryParams("password");
-                String verify = request.queryParams("verify");
+        post("/signup", (request, response) -> {
+            String email = request.queryParams("email");
+            String username = request.queryParams("username");
+            String password = request.queryParams("password");
+            String verify = request.queryParams("verify");
 
-                Map<String, String> root = new HashMap<>();
-                root.put("username", StringEscapeUtils.escapeHtml4(username));
-                root.put("email", StringEscapeUtils.escapeHtml4(email));
+            Map<String, String> root = new HashMap<>();
+            root.put("username", StringEscapeUtils.escapeHtml4(username));
+            root.put("email", StringEscapeUtils.escapeHtml4(email));
 
-                if (validateSignup(username, password, verify, email, root)) {
-                    // good user
-                    System.out.println("Signup: Creating user with: " + username + " " + password);
-                    if (!userDAO.addUser(username, password, email)) {
-                        // duplicate user
-                        root.put("username_error", "Username already in use, Please choose another");
-                        template.process(root, writer);
-                    }
-                    else {
-                        // good user, let's start a session
-                        String sessionID = sessionDAO.startSession(username);
-                        System.out.println("Session ID is" + sessionID);
-
-                        response.raw().addCookie(new Cookie("session", sessionID));
-                        response.redirect("/welcome");
-                    }
+            if (validateSignup(username, password, verify, email, root)) {
+                // good user
+                System.out.println("Signup: Creating user with: " + username + " " + password);
+                if (!userDAO.addUser(username, password, email)) {
+                    // duplicate user
+                    root.put("username_error", "Username already in use, Please choose another");
+                    return new ModelAndView(root, "signup.ftl");
                 }
                 else {
-                    // bad signup
-                    System.out.println("User Registration did not validate");
-                    template.process(root, writer);
+                    // good user, let's start a session
+                    String sessionID = sessionDAO.startSession(username);
+                    System.out.println("Session ID is" + sessionID);
+
+                    response.raw().addCookie(new Cookie("session", sessionID));
+                    response.redirect("/welcome");
+                    return null; // To satisfy compiler
                 }
             }
-        });
+            else {
+                // bad signup
+                System.out.println("User Registration did not validate");
+                return new ModelAndView(root, "signup.ftl");
+            }
+        }, new FreeMarkerEngine());
 
         // present signup form for blog
-        get(new FreemarkerBasedRoute("/signup", "signup.ftl") {
-            @Override
-            protected void doHandle(Request request, Response response, Writer writer)
-                    throws IOException, TemplateException {
+        get("/signup", (request, response) -> {
+            SimpleHash root = new SimpleHash();
 
-                SimpleHash root = new SimpleHash();
+            // initialize values for the form.
+            root.put("username", "");
+            root.put("password", "");
+            root.put("email", "");
+            root.put("password_error", "");
+            root.put("username_error", "");
+            root.put("email_error", "");
+            root.put("verify_error", "");
 
-                // initialize values for the form.
-                root.put("username", "");
-                root.put("password", "");
-                root.put("email", "");
-                root.put("password_error", "");
-                root.put("username_error", "");
-                root.put("email_error", "");
-                root.put("verify_error", "");
-
-                template.process(root, writer);
-            }
-        });
+            return new ModelAndView(root, "signup.ftl");
+        }, new FreeMarkerEngine());
 
         // will present the form used to process new blog posts
-        get(new FreemarkerBasedRoute("/newpost", "newpost_template.ftl") {
-            @Override
-            protected void doHandle(Request request, Response response, Writer writer) throws IOException, TemplateException {
+        get("/newpost", (request, response) -> {
+            // get cookie
+            String username = sessionDAO.findUserNameBySessionId(getSessionCookie(request));
 
-                // get cookie
-                String username = sessionDAO.findUserNameBySessionId(getSessionCookie(request));
-
-                if (username == null) {
-                    // looks like a bad request. user is not logged in
-                    response.redirect("/login");
-                }
-                else {
-                    SimpleHash root = new SimpleHash();
-                    root.put("username", username);
-
-                    template.process(root, writer);
-                }
+            if (username == null) {
+                // looks like a bad request. user is not logged in
+                response.redirect("/login");
+                return null;
             }
-        });
+            else {
+                SimpleHash root = new SimpleHash();
+                root.put("username", username);
+
+                return new ModelAndView(root, "newpost_template.ftl");
+            }
+        }, new FreeMarkerEngine());
 
         // handle the new post submission
-        post(new FreemarkerBasedRoute("/newpost", "newpost_template.ftl") {
-            @Override
-            protected void doHandle(Request request, Response response, Writer writer)
-                    throws IOException, TemplateException {
+        post("/newpost", (request, response) -> {
+            String title = StringEscapeUtils.escapeHtml4(request.queryParams("subject"));
+            String post = StringEscapeUtils.escapeHtml4(request.queryParams("body"));
+            String tags = StringEscapeUtils.escapeHtml4(request.queryParams("tags"));
 
-                String title = StringEscapeUtils.escapeHtml4(request.queryParams("subject"));
-                String post = StringEscapeUtils.escapeHtml4(request.queryParams("body"));
-                String tags = StringEscapeUtils.escapeHtml4(request.queryParams("tags"));
+            String username = sessionDAO.findUserNameBySessionId(getSessionCookie(request));
 
-                String username = sessionDAO.findUserNameBySessionId(getSessionCookie(request));
-
-                if (username == null) {
-                    response.redirect("/login");    // only logged in users can post to blog
-                }
-                else if (title.equals("") || post.equals("")) {
-                    // redisplay page with errors
-                    Map<String, String> root = new HashMap<>();
-                    root.put("errors", "post must contain a title and blog entry.");
-                    root.put("subject", title);
-                    root.put("username", username);
-                    root.put("tags", tags);
-                    root.put("body", post);
-                    template.process(root, writer);
-                }
-                else {
-                    // extract tags
-                    List<String> tagsArray = extractTags(tags);
-
-                    // substitute some <p> for the paragraph breaks
-                    post = post.replaceAll("\\r?\\n", "<p>");
-
-                    String permalink = blogPostDAO.addPost(title, post, tagsArray, username);
-
-                    // now redirect to the blog permalink
-                    response.redirect("/post/" + permalink);
-                }
+            if (username == null) {
+                response.redirect("/login");    // only logged in users can post to blog
+                return null;
             }
-        });
-
-        get(new FreemarkerBasedRoute("/welcome", "welcome.ftl") {
-            @Override
-            protected void doHandle(Request request, Response response, Writer writer) throws IOException, TemplateException {
-
-                String cookie = getSessionCookie(request);
-                String username = sessionDAO.findUserNameBySessionId(cookie);
-
-                if (username == null) {
-                    System.out.println("welcome() can't identify the user, redirecting to signup");
-                    response.redirect("/signup");
-
-                }
-                else {
-                    SimpleHash root = new SimpleHash();
-
-                    root.put("username", username);
-
-                    template.process(root, writer);
-                }
+            else if (title.equals("") || post.equals("")) {
+                // redisplay page with errors
+                Map<String, String> root = new HashMap<>();
+                root.put("errors", "post must contain a title and blog entry.");
+                root.put("subject", title);
+                root.put("username", username);
+                root.put("tags", tags);
+                root.put("body", post);
+                return new ModelAndView(root, "newpost_template.ftl");
             }
-        });
+            else {
+                // extract tags
+                List<String> tagsArray = extractTags(tags);
 
-        // process a new comment
-        post(new FreemarkerBasedRoute("/newcomment", "entry_template.ftl") {
-            @Override
-            protected void doHandle(Request request, Response response, Writer writer)
-                    throws IOException, TemplateException {
-                String name = StringEscapeUtils.escapeHtml4(request.queryParams("commentName"));
-                String email = StringEscapeUtils.escapeHtml4(request.queryParams("commentEmail"));
-                String body = StringEscapeUtils.escapeHtml4(request.queryParams("commentBody"));
-                String permalink = request.queryParams("permalink");
+                // substitute some <p> for the paragraph breaks
+                post = post.replaceAll("\\r?\\n", "<p>");
 
-                Document post = blogPostDAO.findByPermalink(permalink);
-                if (post == null) {
-                    response.redirect("/post_not_found");
-                }
-                // check that comment is good
-                else if (name.equals("") || body.equals("")) {
-                    // bounce this back to the user for correction
-                    SimpleHash root = new SimpleHash();
-                    SimpleHash comment = new SimpleHash();
+                String permalink = blogPostDAO.addPost(title, post, tagsArray, username);
 
-                    comment.put("name", name);
-                    comment.put("email", email);
-                    comment.put("body", body);
-                    root.put("comment", comment);
-                    root.put("post", post);
-                    root.put("errors", "Post must contain your name and an actual comment");
-
-                    template.process(root, writer);
-                }
-                else {
-                    blogPostDAO.addPostComment(name, email, body, permalink);
-                    response.redirect("/post/" + permalink);
-                }
+                // now redirect to the blog permalink
+                response.redirect("/post/" + permalink);
+                return null;
             }
-        });
+        }, new FreeMarkerEngine());
 
-        // present the login page
-        get(new FreemarkerBasedRoute("/login", "login.ftl") {
-            @Override
-            protected void doHandle(Request request, Response response, Writer writer) throws IOException, TemplateException {
+        // will present welcome page
+        get("/welcome", (request, response) -> {
+            String cookie = getSessionCookie(request);
+            String username = sessionDAO.findUserNameBySessionId(cookie);
+
+            if (username == null) {
+                System.out.println("welcome() can't identify the user, redirecting to signup");
+                response.redirect("/signup");
+                return null;
+            }
+            else {
                 SimpleHash root = new SimpleHash();
 
-                root.put("username", "");
-                root.put("login_error", "");
+                root.put("username", username);
 
-                template.process(root, writer);
+                return new ModelAndView(root, "welcome.ftl");
             }
-        });
+        }, new FreeMarkerEngine());
+
+        // process a new comment
+        post("/newcomment", (request, response) -> {
+            String name = StringEscapeUtils.escapeHtml4(request.queryParams("commentName"));
+            String email = StringEscapeUtils.escapeHtml4(request.queryParams("commentEmail"));
+            String body = StringEscapeUtils.escapeHtml4(request.queryParams("commentBody"));
+            String permalink = request.queryParams("permalink");
+
+            Document post = blogPostDAO.findByPermalink(permalink);
+            if (post == null) {
+                response.redirect("/post_not_found");
+                return null;
+            }
+            // check that comment is good
+            else if (name.equals("") || body.equals("")) {
+                // bounce this back to the user for correction
+                SimpleHash root = new SimpleHash();
+                SimpleHash comment = new SimpleHash();
+
+                comment.put("name", name);
+                comment.put("email", email);
+                comment.put("body", body);
+                root.put("comment", comment);
+                root.put("post", post);
+                root.put("errors", "Post must contain your name and an actual comment");
+
+                return new ModelAndView(root, "entry_template.ftl");
+            }
+            else {
+                blogPostDAO.addPostComment(name, email, body, permalink);
+                response.redirect("/post/" + permalink);
+                return null;
+            }
+        }, new FreeMarkerEngine());
+
+        // present the login page
+        get("/login", (request, response) -> {
+            SimpleHash root = new SimpleHash();
+
+            root.put("username", "");
+            root.put("login_error", "");
+
+            return new ModelAndView(root, "login.ftl");
+        }, new FreeMarkerEngine());
 
         // process output coming from login form. On success redirect folks to the welcome page
         // on failure, just return an error and let them try again.
-        post(new FreemarkerBasedRoute("/login", "login.ftl") {
-            @Override
-            protected void doHandle(Request request, Response response, Writer writer) throws IOException, TemplateException {
+        post("/login", (request, response) -> {
+            String username = request.queryParams("username");
+            String password = request.queryParams("password");
 
-                String username = request.queryParams("username");
-                String password = request.queryParams("password");
+            System.out.println("Login: User submitted: " + username + "  " + password);
 
-                System.out.println("Login: User submitted: " + username + "  " + password);
+            Document user = userDAO.validateLogin(username, password);
 
-                Document user = userDAO.validateLogin(username, password);
+            if (user != null) {
 
-                if (user != null) {
-
-                    // valid user, let's log them in
-                    String sessionID = sessionDAO.startSession(user.get("_id").toString());
-
-                    if (sessionID == null) {
-                        response.redirect("/internal_error");
-                    }
-                    else {
-                        // set the cookie for the user's browser
-                        response.raw().addCookie(new Cookie("session", sessionID));
-
-                        response.redirect("/welcome");
-                    }
-                }
-                else {
-                    SimpleHash root = new SimpleHash();
-
-
-                    root.put("username", StringEscapeUtils.escapeHtml4(username));
-                    root.put("password", "");
-                    root.put("login_error", "Invalid Login");
-                    template.process(root, writer);
-                }
-            }
-        });
-
-        // Show the posts filed under a certain tag
-        get(new FreemarkerBasedRoute("/tag/:thetag", "blog_template.ftl") {
-            @Override
-            protected void doHandle(Request request, Response response, Writer writer)
-                    throws IOException, TemplateException {
-
-                String username = sessionDAO.findUserNameBySessionId(getSessionCookie(request));
-                SimpleHash root = new SimpleHash();
-
-                String tag = StringEscapeUtils.escapeHtml4(request.params(":thetag"));
-                List<Document> posts = blogPostDAO.findByTagDateDescending(tag);
-
-                root.put("myposts", posts);
-                if (username != null) {
-                    root.put("username", username);
-                }
-
-                template.process(root, writer);
-            }
-        });
-
-
-
-        // tells the user that the URL is dead
-        get(new FreemarkerBasedRoute("/post_not_found", "post_not_found.ftl") {
-            @Override
-            protected void doHandle(Request request, Response response, Writer writer) throws IOException, TemplateException {
-                SimpleHash root = new SimpleHash();
-                template.process(root, writer);
-            }
-        });
-
-        // allows the user to logout of the blog
-        get(new FreemarkerBasedRoute("/logout", "signup.ftl") {
-            @Override
-            protected void doHandle(Request request, Response response, Writer writer) throws IOException, TemplateException {
-
-                String sessionID = getSessionCookie(request);
+                // valid user, let's log them in
+                String sessionID = sessionDAO.startSession(user.get("_id").toString());
 
                 if (sessionID == null) {
-                    // no session to end
-                    response.redirect("/login");
+                    response.redirect("/internal_error");
                 }
                 else {
-                    // deletes from session table
-                    sessionDAO.endSession(sessionID);
+                    // set the cookie for the user's browser
+                    response.raw().addCookie(new Cookie("session", sessionID));
 
-                    // this should delete the cookie
-                    Cookie c = getSessionCookieActual(request);
-                    c.setMaxAge(0);
-
-                    response.raw().addCookie(c);
-
-                    response.redirect("/login");
+                    response.redirect("/welcome");
                 }
+                return null;
             }
-        });
-
-
-        // used to process internal errors
-        get(new FreemarkerBasedRoute("/internal_error", "error_template.ftl") {
-            @Override
-            protected void doHandle(Request request, Response response, Writer writer) throws IOException, TemplateException {
+            else {
                 SimpleHash root = new SimpleHash();
 
-                root.put("error", "System has encountered an error.");
-                template.process(root, writer);
+                root.put("username", StringEscapeUtils.escapeHtml4(username));
+                root.put("password", "");
+                root.put("login_error", "Invalid Login");
+                return new ModelAndView(root, "login.ftl");
             }
-        });
+        }, new FreeMarkerEngine());
+
+        // show the posts filed under a certain tag
+        get("/tag/:thetag", (request, response) -> {
+            String username = sessionDAO.findUserNameBySessionId(getSessionCookie(request));
+            SimpleHash root = new SimpleHash();
+
+            String tag = StringEscapeUtils.escapeHtml4(request.params(":thetag"));
+            List<Document> posts = blogPostDAO.findByTagDateDescending(tag);
+
+            root.put("myposts", posts);
+            if (username != null) {
+                root.put("username", username);
+            }
+
+            return new ModelAndView(root, "blog_template.ftl");
+        }, new FreeMarkerEngine());
+
+        // tells the user that the URL is dead
+        get("/post_not_found", (request, response) -> {
+            SimpleHash root = new SimpleHash();
+            return new ModelAndView(root, "post_not_found.ftl");
+        }, new FreeMarkerEngine());
+
+        // allows the user to logout of the blog
+        get("/logout", (request, response) -> {
+            String sessionID = getSessionCookie(request);
+
+            if (sessionID == null) {
+                // no session to end
+                response.redirect("/login");
+            }
+            else {
+                // deletes from session table
+                sessionDAO.endSession(sessionID);
+
+                // this should delete the cookie
+                Cookie c = getSessionCookieActual(request);
+                c.setMaxAge(0);
+                response.raw().addCookie(c);
+                response.redirect("/login");
+            }
+            return null;
+        }, new FreeMarkerEngine());
+
+        // used to process internal errors
+        get("/internal_error", (request, response) -> {
+            SimpleHash root = new SimpleHash();
+            root.put("error", "System has encountered an error.");
+            return new ModelAndView(root, "error_template.ftl");
+        }, new FreeMarkerEngine());
     }
 
     // helper function to get session cookie as string
