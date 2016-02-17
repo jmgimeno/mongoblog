@@ -20,7 +20,6 @@ package course;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
 import com.mongodb.client.MongoDatabase;
-import freemarker.template.Configuration;
 import freemarker.template.SimpleHash;
 import org.apache.commons.lang3.StringEscapeUtils;
 import org.bson.Document;
@@ -44,11 +43,10 @@ import static spark.Spark.*;
  * It is also the entry point into the web application.
  */
 public class BlogController {
-//    private final Configuration cfg;
     private final BlogPostDAO blogPostDAO;
     private final UserDAO userDAO;
     private final SessionDAO sessionDAO;
-//    private final FreeMarkerEngine freeMarkerEngine;
+    private final FreeMarkerEngine freeMarkerEngine;
 
     public static void main(String[] args) throws IOException {
         if (args.length == 0) {
@@ -66,11 +64,8 @@ public class BlogController {
         blogPostDAO = new BlogPostDAO(blogDatabase);
         userDAO = new UserDAO(blogDatabase);
         sessionDAO = new SessionDAO(blogDatabase);
+        freeMarkerEngine = new FreeMarkerEngine();
 
-//        cfg = createFreemarkerConfiguration();
-//        freeMarkerEngine = new FreeMarkerEngine(cfg);
-        
-        port(8082);
         initializeRoutes();
     }
 
@@ -85,8 +80,8 @@ public class BlogController {
             if (username != null) {
                 root.put("username", username);
             }
-            return new ModelAndView(root, "blog_template.ftl");
-        }, new FreeMarkerEngine());
+            return freeMarkerEngine.render(new ModelAndView(root, "blog_template.ftl"));
+        });
 
         // used to display actual blog post detail page
         get("/post/:permalink", (request, response) -> {
@@ -96,7 +91,7 @@ public class BlogController {
 
             if (post == null) {
                 response.redirect("/post_not_found");
-                return null;
+                return "";
             } else {
 
                 // empty comment to hold new comment in form at bottom of blog entry detail page
@@ -110,9 +105,9 @@ public class BlogController {
                 root.put("post", post);
                 root.put("comment", newComment);
 
-                return new ModelAndView(root, "entry_template.ftl");
+                return freeMarkerEngine.render(new ModelAndView(root, "entry_template.ftl"));
             }
-        }, new FreeMarkerEngine());
+        });
 
         // handle the signup post
         post("/signup", (request, response) -> {
@@ -131,7 +126,7 @@ public class BlogController {
                 if (!userDAO.addUser(username, password, email)) {
                     // duplicate user
                     root.put("username_error", "Username already in use, Please choose another");
-                    return new ModelAndView(root, "signup.ftl");
+                    return freeMarkerEngine.render(new ModelAndView(root, "signup.ftl"));
                 }
                 else {
                     // good user, let's start a session
@@ -140,15 +135,15 @@ public class BlogController {
 
                     response.raw().addCookie(new Cookie("session", sessionID));
                     response.redirect("/welcome");
-                    return null; // To satisfy compiler
+                    return "";
                 }
             }
             else {
                 // bad signup
                 System.out.println("User Registration did not validate");
-                return new ModelAndView(root, "signup.ftl");
+                return freeMarkerEngine.render(new ModelAndView(root, "signup.ftl"));
             }
-        }, new FreeMarkerEngine());
+        });
 
         // present signup form for blog
         get("/signup", (request, response) -> {
@@ -164,7 +159,7 @@ public class BlogController {
             root.put("verify_error", "");
 
             return new ModelAndView(root, "signup.ftl");
-        }, new FreeMarkerEngine());
+        }, freeMarkerEngine);
 
         // will present the form used to process new blog posts
         get("/newpost", (request, response) -> {
@@ -174,15 +169,15 @@ public class BlogController {
             if (username == null) {
                 // looks like a bad request. user is not logged in
                 response.redirect("/login");
-                return null;
+                return "";
             }
             else {
                 SimpleHash root = new SimpleHash();
                 root.put("username", username);
 
-                return new ModelAndView(root, "newpost_template.ftl");
+                return freeMarkerEngine.render(new ModelAndView(root, "newpost_template.ftl"));
             }
-        }, new FreeMarkerEngine());
+        });
 
         // handle the new post submission
         post("/newpost", (request, response) -> {
@@ -194,7 +189,7 @@ public class BlogController {
 
             if (username == null) {
                 response.redirect("/login");    // only logged in users can post to blog
-                return null;
+                return "";
             }
             else if (title.equals("") || post.equals("")) {
                 // redisplay page with errors
@@ -204,7 +199,7 @@ public class BlogController {
                 root.put("username", username);
                 root.put("tags", tags);
                 root.put("body", post);
-                return new ModelAndView(root, "newpost_template.ftl");
+                return freeMarkerEngine.render(new ModelAndView(root, "newpost_template.ftl"));
             }
             else {
                 // extract tags
@@ -217,9 +212,9 @@ public class BlogController {
 
                 // now redirect to the blog permalink
                 response.redirect("/post/" + permalink);
-                return null;
+                return "";
             }
-        }, new FreeMarkerEngine());
+        });
 
         // will present welcome page
         get("/welcome", (request, response) -> {
@@ -229,16 +224,16 @@ public class BlogController {
             if (username == null) {
                 System.out.println("welcome() can't identify the user, redirecting to signup");
                 response.redirect("/signup");
-                return null;
+                return "";
             }
             else {
                 SimpleHash root = new SimpleHash();
 
                 root.put("username", username);
 
-                return new ModelAndView(root, "welcome.ftl");
+                return freeMarkerEngine.render(new ModelAndView(root, "welcome.ftl"));
             }
-        }, new FreeMarkerEngine());
+        });
 
         // process a new comment
         post("/newcomment", (request, response) -> {
@@ -250,7 +245,7 @@ public class BlogController {
             Document post = blogPostDAO.findByPermalink(permalink);
             if (post == null) {
                 response.redirect("/post_not_found");
-                return null;
+                return "";
             }
             // check that comment is good
             else if (name.equals("") || body.equals("")) {
@@ -265,14 +260,14 @@ public class BlogController {
                 root.put("post", post);
                 root.put("errors", "Post must contain your name and an actual comment");
 
-                return new ModelAndView(root, "entry_template.ftl");
+                return freeMarkerEngine.render(new ModelAndView(root, "entry_template.ftl"));
             }
             else {
                 blogPostDAO.addPostComment(name, email, body, permalink);
                 response.redirect("/post/" + permalink);
-                return null;
+                return "";
             }
-        }, new FreeMarkerEngine());
+        });
 
         // present the login page
         get("/login", (request, response) -> {
@@ -282,7 +277,7 @@ public class BlogController {
             root.put("login_error", "");
 
             return new ModelAndView(root, "login.ftl");
-        }, new FreeMarkerEngine());
+        }, freeMarkerEngine);
 
         // process output coming from login form. On success redirect folks to the welcome page
         // on failure, just return an error and let them try again.
@@ -308,7 +303,7 @@ public class BlogController {
 
                     response.redirect("/welcome");
                 }
-                return null;
+                return "";
             }
             else {
                 SimpleHash root = new SimpleHash();
@@ -316,9 +311,9 @@ public class BlogController {
                 root.put("username", StringEscapeUtils.escapeHtml4(username));
                 root.put("password", "");
                 root.put("login_error", "Invalid Login");
-                return new ModelAndView(root, "login.ftl");
+                return freeMarkerEngine.render(new ModelAndView(root, "login.ftl"));
             }
-        }, new FreeMarkerEngine());
+        });
 
         // show the posts filed under a certain tag
         get("/tag/:thetag", (request, response) -> {
@@ -334,13 +329,13 @@ public class BlogController {
             }
 
             return new ModelAndView(root, "blog_template.ftl");
-        }, new FreeMarkerEngine());
+        }, freeMarkerEngine);
 
         // tells the user that the URL is dead
         get("/post_not_found", (request, response) -> {
             SimpleHash root = new SimpleHash();
             return new ModelAndView(root, "post_not_found.ftl");
-        }, new FreeMarkerEngine());
+        }, freeMarkerEngine);
 
         // allows the user to logout of the blog
         get("/logout", (request, response) -> {
@@ -360,15 +355,15 @@ public class BlogController {
                 response.raw().addCookie(c);
                 response.redirect("/login");
             }
-            return null;
-        }, new FreeMarkerEngine());
+            return "";
+        });
 
         // used to process internal errors
         get("/internal_error", (request, response) -> {
             SimpleHash root = new SimpleHash();
             root.put("error", "System has encountered an error.");
             return new ModelAndView(root, "error_template.ftl");
-        }, new FreeMarkerEngine());
+        }, freeMarkerEngine);
     }
 
     // helper function to get session cookie as string
@@ -456,9 +451,4 @@ public class BlogController {
         return true;
     }
 
-    private Configuration createFreemarkerConfiguration() {
-        Configuration retVal = new Configuration();
-        retVal.setClassForTemplateLoading(BlogController.class, "/freemarker");
-        return retVal;
-    }
 }
