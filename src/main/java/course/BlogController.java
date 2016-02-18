@@ -58,12 +58,12 @@ public class BlogController {
     }
 
     public BlogController(String mongoURIString) throws IOException {
-        final MongoClient mongoClient = new MongoClient(new MongoClientURI(mongoURIString));
-        final MongoDatabase blogDatabase = mongoClient.getDatabase("blog");
+        MongoClient mongoClient = new MongoClient(new MongoClientURI(mongoURIString));
+        MongoDatabase blogDatabase = mongoClient.getDatabase("blog");
 
-        blogPostDAO = new BlogPostDAO(blogDatabase);
-        userDAO = new UserDAO(blogDatabase);
-        sessionDAO = new SessionDAO(blogDatabase);
+        blogPostDAO      = new BlogPostDAO(blogDatabase);
+        userDAO          = new UserDAO(blogDatabase);
+        sessionDAO       = new SessionDAO(blogDatabase);
         freeMarkerEngine = new FreeMarkerEngine();
 
         initializeRoutes();

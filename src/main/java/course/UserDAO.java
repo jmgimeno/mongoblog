@@ -29,6 +29,8 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Random;
 
+import static com.mongodb.client.model.Filters.eq;
+
 public class UserDAO {
     private final MongoCollection<Document> usersCollection;
     private Random random = new SecureRandom();
@@ -39,31 +41,26 @@ public class UserDAO {
 
     // validates that username is unique and insert into db
     public boolean addUser(String username, String password, String email) {
-
-        String passwordHash = makePasswordHash(password, Integer.toString(random.nextInt()));
-
-        Document user = new Document();
-
-        user.append("_id", username).append("password", passwordHash);
-
-        if (email != null && !email.equals("")) {
-            // the provided email address
-            user.append("email", email);
-        }
-
         try {
+            String passwordHash = makePasswordHash(password, Integer.toString(random.nextInt()));
+
+            Document user = new Document("_id", username)
+                            .append("password", passwordHash);
+
+            if (email != null && !email.equals("")) {
+                // the provided email address
+                user.append("email", email);
+            }
+
             usersCollection.insertOne(user);
             return true;
         } catch (MongoWriteException e) {
-            System.out.println("Username already in use: " + username);
             return false;
         }
     }
 
     public Document validateLogin(String username, String password) {
-        Document user;
-
-        user = usersCollection.find(new Document("_id", username)).first();
+        Document user = usersCollection.find(eq("_id", username)).first();
 
         if (user == null) {
             System.out.println("User not in database");
@@ -75,13 +72,11 @@ public class UserDAO {
         String salt = hashedAndSalted.split(",")[1];
 
         if (!hashedAndSalted.equals(makePasswordHash(password, salt))) {
-            System.out.println("Submitted password is not a match");
             return null;
         }
 
         return user;
     }
-
 
     private String makePasswordHash(String password, String salt) {
         try {

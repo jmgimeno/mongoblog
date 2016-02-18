@@ -17,14 +17,18 @@
 
 package course;
 
-import com.mongodb.client.FindIterable;
+import com.mongodb.MongoException;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.result.UpdateResult;
 import org.bson.Document;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+
+import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Sorts.descending;
+import static com.mongodb.client.model.Updates.push;
 
 public class BlogPostDAO {
     MongoCollection<Document> postsCollection;
@@ -34,61 +38,57 @@ public class BlogPostDAO {
     }
 
     public Document findByPermalink(String permalink) {
-        Document post = postsCollection.find(new Document("permalink", permalink)).first();
-        return post;
+        return postsCollection
+                .find(eq("permalink", permalink))
+                .first();
     }
 
     public List<Document> findByDateDescending(int limit) {
-        List<Document> posts = new ArrayList<>();
-        FindIterable<Document> cursor = postsCollection.find().sort(new Document("date", -1)).limit(limit);
-        cursor.into(posts);
-        return posts;
+        return postsCollection
+                .find()
+                .sort(descending("date"))
+                .limit(limit)
+                .into(new ArrayList<>());
     }
 
     public List<Document> findByTagDateDescending(final String tag) {
-        List<Document> posts = new ArrayList<>();
-        Document query = new Document("tags", tag);
-        System.out.println("/tag query: " + query.toString());
-        FindIterable<Document> cursor = postsCollection.find(query).sort(new Document("date", -1)).limit(10);
-        cursor.into(posts);
-        return posts;
+        return postsCollection
+                .find(eq("tags", tag))
+                .sort(descending("date"))
+                .limit(10)
+                .into(new ArrayList<>());
     }
 
     public String addPost(String title, String body, List tags, String username) {
-
-        System.out.println("inserting blog entry " + title + " " + body);
-
-        String permalink = title.replaceAll("\\s", "_"); // whitespace becomes _
-        permalink = permalink.replaceAll("\\W", ""); // get rid of non alphanumeric
-        permalink = permalink.toLowerCase();
-
-        Document post = new Document("title", title);
-        post.append("author", username);
-        post.append("body", body);
-        post.append("permalink", permalink);
-        post.append("tags", tags);
-        post.append("comments", new java.util.ArrayList());
-        post.append("date", new java.util.Date());
-
         try {
+            String permalink = title.replaceAll("\\s", "_"); // whitespace becomes _
+            permalink = permalink.replaceAll("\\W", ""); // get rid of non alphanumeric
+            permalink = permalink.toLowerCase();
+
+            Document post = new Document("title", title)
+                            .append("author", username)
+                            .append("body", body)
+                            .append("permalink", permalink)
+                            .append("tags", tags)
+                            .append("comments", new ArrayList<>())
+                            .append("date", new Date());
+
             postsCollection.insertOne(post);
-            System.out.println("Inserting blog post with permalink " + permalink);
-        } catch (Exception e) {
-            System.out.println("Error inserting post");
+            return permalink;
+        } catch (MongoException e) {
             return null;
         }
-
-        return permalink;
     }
 
-    public void addPostComment(final String name, final String email, final String body, final String permalink) {
-        Document comment = new Document("author", name).append("body", body);
+    public void addPostComment(String name, String email, String body, String permalink) {
+        Document comment = new Document("author", name)
+                            .append("body", body);
+
         if (email != null && !email.equals("")) {
             comment.append("email", email);
         }
 
-        UpdateResult result = postsCollection.updateOne(new Document("permalink", permalink),
-                                                        new Document("$push", new Document("comments", comment)));
+        postsCollection.updateOne(eq("permalink", permalink), push("comments", comment));
     }
 
 }

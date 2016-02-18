@@ -24,6 +24,8 @@ import sun.misc.BASE64Encoder;
 
 import java.security.SecureRandom;
 
+import static com.mongodb.client.model.Filters.eq;
+
 public class SessionDAO {
     private final MongoCollection<Document> sessionsCollection;
 
@@ -56,10 +58,8 @@ public class SessionDAO {
 
         String sessionID = encoder.encode(randomBytes);
 
-        // build the BSON object
-        Document session = new Document("username", username);
-
-        session.append("_id", sessionID);
+        Document session = new Document("username", username)
+                            .append("_id", sessionID);
 
         sessionsCollection.insertOne(session);
 
@@ -68,11 +68,11 @@ public class SessionDAO {
 
     // ends the session by deleting it from the sesisons table
     public void endSession(String sessionID) {
-        sessionsCollection.findOneAndDelete(new Document("_id", sessionID));
+        sessionsCollection.findOneAndDelete(eq("_id", sessionID));
     }
 
     // retrieves the session from the sessions table
     public Document getSession(String sessionID) {
-        return sessionsCollection.find(new Document("_id", sessionID)).first();
+        return sessionsCollection.find(eq("_id", sessionID)).first();
     }
 }
