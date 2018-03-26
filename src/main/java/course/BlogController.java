@@ -49,8 +49,9 @@ public class BlogController {
     private final FreeMarkerEngine freeMarkerEngine;
 
     public static void main(String[] args) throws IOException {
+
         if (args.length == 0) {
-            new BlogController("mongodb://localhost");
+            new BlogController("mongodb://mongo:27017");
         }
         else {
             new BlogController(args[0]);
